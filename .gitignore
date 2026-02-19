@@ -34,3 +34,7 @@ htmlcov/
 
 # Migrations (optional)
 # chatbot/migrations/
+
+# Ignore all Django migrations
+**/migrations/
+!**/migrations/__init__.py
