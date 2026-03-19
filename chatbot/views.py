@@ -8,7 +8,7 @@ from .models import ChatMessage
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 SYSTEM_PROMPT = '''
-You are a helpful, friendly assitant.
+You are a helpful, friendly assistant.
 - Always clearly and concisely 
 - If you don't know something, Say so honestly
 - Format your answere in simple English
