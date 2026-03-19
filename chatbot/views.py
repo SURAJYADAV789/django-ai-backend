@@ -7,6 +7,15 @@ from .models import ChatMessage
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
+SYSTEM_PROMPT = '''
+You are a helpful, friendly assitant.
+- Always clearly and concisely 
+- If you don't know something, Say so honestly
+- Format your answere in simple English
+- Never make up facts
+'''
+
+
 @csrf_exempt
 def ask_ai(request):
     if request.method == "POST":
@@ -20,7 +29,14 @@ def ask_ai(request):
             # Call OpenAI (fixed: use client instead of openai)
             response = client.chat.completions.create(
                 model="gpt-4",
-                messages=[{"role": "user", "content": question}]
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},   # Controls AI Behavior
+                    {"role": "user", "content": question}
+                    ],
+
+                temperature=0.7,   # 0 = strict/factual, 1 = creative/random
+                max_tokens=500     # limit response length
+
             )
             answer = response.choices[0].message.content
 
