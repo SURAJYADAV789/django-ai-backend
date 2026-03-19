@@ -1,38 +1,37 @@
-from django.shortcuts import render
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from .services import get_ai_response
-from .models import ChatMessage
-# Create your views here.
+import json
+import os
+from openai import OpenAI
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import ChatMessage 
 
-@api_view(['POST'])
-def chat_view(request):
-    message = request.data.get('message')
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-    if not message:
-        return Response(
-            {'error': 'Message is required.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    reply = get_ai_response(message)
+@csrf_exempt
+def ask_ai(request):
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            question = data.get("question", "").strip()
 
-    # Return full chat history
-    chat_history = ChatMessage.objects.all().order_by('-created_at')
+            if not question:
+                return JsonResponse({"error": "No question provided"}, status=400)
 
-    data = [
-        {
-            'role': chat.role,
-            'content': chat.content,
-            'created_at': chat.created_at
-        }
+            # Call OpenAI (fixed: use client instead of openai)
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": question}]
+            )
+            answer = response.choices[0].message.content
 
-        for chat in chat_history
-    ]
-    return Response({
-        
-        'reply':reply,
-        'conversation': data
-        
-        })
+            # Save to DB
+            ChatMessage.objects.create(question=question, answer=answer)
+
+            return JsonResponse({"question": question, "answer": answer})
+
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Only POST allowed"}, status=405)
