@@ -4,6 +4,8 @@ from openai import OpenAI
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import ChatMessage 
+from django_ratelimit.decorators import ratelimit
+from django.views.decorators.http import require_POST
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -17,6 +19,8 @@ You are a helpful, friendly assistant.
 
 
 @csrf_exempt
+@require_POST
+@ratelimit(key='ip', rate='10/m', block=True)  # Max 10 requests per minute per ip
 def ask_ai(request):
     if request.method == "POST":
         try:
@@ -41,7 +45,11 @@ def ask_ai(request):
             answer = response.choices[0].message.content
 
             # Save to DB
-            ChatMessage.objects.create(question=question, answer=answer)
+            ChatMessage.objects.create(
+                question=question, 
+                answer=answer,
+                ip_address=request.META.get('REMOTE_ADDR')
+                )
 
             return JsonResponse({"question": question, "answer": answer})
 
