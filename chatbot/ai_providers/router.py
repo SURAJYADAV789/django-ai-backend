@@ -1,5 +1,5 @@
 import os
-from .open_provider import OpenAIProvider
+from .openai_provider  import OpenAIProvider
 from .claude_provider import ClaudeProvider
 
 PROVIDERS = {
