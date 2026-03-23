@@ -6,14 +6,15 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import ChatMessage 
 from django_ratelimit.decorators import ratelimit
 from django.views.decorators.http import require_POST
+from .ai_providers.router import get_provider
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 SYSTEM_PROMPT = '''
 You are a helpful, friendly assistant.
-- Always clearly and concisely 
+- Always respond clearly and concisely 
 - If you don't know something, Say so honestly
-- Format your answere in simple English
+- Format your answeres in simple English
 - Never make up facts
 '''
 
@@ -29,29 +30,23 @@ def ask_ai(request):
 
             if not question:
                 return JsonResponse({"error": "No question provided"}, status=400)
+            
+            provider = get_provider()
+            result = provider.complete(question, SYSTEM_PROMPT)
 
-            # Call OpenAI (fixed: use client instead of openai)
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},   # Controls AI Behavior
-                    {"role": "user", "content": question}
-                    ],
-
-                temperature=0.7,   # 0 = strict/factual, 1 = creative/random
-                max_tokens=500     # limit response length
-
-            )
-            answer = response.choices[0].message.content
 
             # Save to DB
             ChatMessage.objects.create(
                 question=question, 
-                answer=answer,
-                ip_address=request.META.get('REMOTE_ADDR')
+                answer=result.answer,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                provider=result.provider,
+                model=result.model,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
                 )
 
-            return JsonResponse({"question": question, "answer": answer})
+            return JsonResponse({"question": question, "answer": result.answer})
 
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
