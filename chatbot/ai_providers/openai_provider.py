@@ -3,9 +3,12 @@ from openai import OpenAI
 from .base import LLMResponse, BaseLLMProvider
 
 class OpenAIProvider(BaseLLMProvider):
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = None):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = model
+        # use fine-tuned model if set, else default to gpt-4o
+        self.model = model or os.getenv('OPENAI_MODEL') or 'gpt-4o'
+
+        print(f'Using model: {self.model}')
 
     def complete(self, question: str, system_prompt: str) -> LLMResponse:
         response = self.client.chat.completions.create(
