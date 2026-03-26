@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -16,3 +17,7 @@ class BaseLLMProvider(ABC):
     def complete(self, question: str, system_prompt: str) -> LLMResponse:
         pass
 
+    @abstractmethod
+    def complete_with_messages(self, messages: List[dict]) -> LLMResponse:
+        '''Used for the conversation - receives pre-built messages list'''
+        pass

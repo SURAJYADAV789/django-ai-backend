@@ -1,6 +1,7 @@
 import os
 from openai import OpenAI
 from .base import LLMResponse, BaseLLMProvider
+from typing import List
 
 class OpenAIProvider(BaseLLMProvider):
     def __init__(self, model: str = None):
@@ -17,6 +18,14 @@ class OpenAIProvider(BaseLLMProvider):
                 {'role': 'system', 'content':system_prompt},
                 {'role': 'user', 'content':question}
             ],
+            temperature=0.7,
+            max_tokens=500
+        )
+    
+    def complete_with_messages(self, messages: List[dict]) -> LLMResponse:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
             temperature=0.7,
             max_tokens=500
         )
