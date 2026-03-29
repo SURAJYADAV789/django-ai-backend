@@ -31,3 +31,18 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.provider} {self.question[:50]}"
+
+
+class IngestedDocument(models.Model):
+    """
+    Tracks which documents have been ingested into the vectore store
+    Usefull to aviod ingesting the same documents twice
+    """
+    filename = models.CharField(max_length=255)
+    filepath = models.CharField(max_length=500)
+    chunk_count = models.IntegerField(default=0)   # how many chunk created
+    ingested_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.filename} {self.chunk_count} chunks'
+    
