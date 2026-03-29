@@ -3,10 +3,11 @@ import os
 from openai import OpenAI
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import ChatMessage, Conversation
+from .models import ChatMessage, Conversation, IngestedDocument
 from django_ratelimit.decorators import ratelimit
 from django.views.decorators.http import require_POST, require_GET
 from .ai_providers.router import get_provider
+from chatbot.rag.rag_pipeline import ask_with_rag
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -110,3 +111,97 @@ def get_history(request, session_id):
         return JsonResponse({'session_id': session_id, 'messages': list(messages)})
     except Conversation.DoesNotExist:
         return JsonResponse({'error': 'Session not found'}, status=400)
+    
+
+@csrf_exempt
+@require_POST
+@ratelimit(key='ip', rate='10/m', block=True)
+def rag_ask(request):
+    '''
+    RAG ENDPOINT - Answere Questions from your INGESTED documents
+
+    Differnce from /chat/:
+    /chat/ -> answers from GPT - 4o genernal knowledge
+    /rag/  -> answere ONLY from your ingested documents
+    '''
+    try:
+        data = json.loads(request.body)
+        question = data.get('question', '').strip()
+        session_id = data.get('session_id', '').strip()
+
+        if not question:
+            return JsonResponse({'error': 'No question provides'}, status=400)
+        
+        if not session_id:
+            return JsonResponse({'error': 'No session_id provided'}, status=400)
+        
+        # check if any documents have been ingestes
+        if not IngestedDocument.objects.exists():
+            return JsonResponse({
+                'error': 'No documents ingested yet. Run python manage.py ingest_docs --file <path>'
+            },status=400)
+        
+        # get or create conversation for memory 
+        conversation, created = Conversation.objects.get_or_create(
+            session_id=f'rag_{session_id}'  # Prefix to separate from regular chat
+        )
+
+        # load last 5 message from context
+        history = []
+        past_messages = conversation.messages.order_by('-created_at')[:5]
+        for msg in reversed(list(past_messages)):
+            history.append({
+                'question': msg.question,
+                'answer': msg.answer
+            })
+
+
+        # Run RAG pipeline
+        result = ask_with_rag(
+            question=question,
+            n_chunks=3,
+            conversation_history=history if history else None,
+        )
+
+
+        # save to DB
+        ChatMessage.objects.create(
+            conversation=conversation,
+            question=question,
+            answer=result.answer,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            provider=result.provider,
+            model=result.model, 
+            input_tokens=0,   # RAG use variable token
+            output_tokens=0
+        )
+
+        return JsonResponse({
+            'question': question,
+            'answer': result.answer,
+            'sources': result.sources,   # which docs where used
+            'session_id': session_id,
+        })
+        
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid Json'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+    
+
+@require_GET
+def list_documents(request):
+    '''Show what documents have been ingested'''
+    docs = IngestedDocument.objects.all().values(
+        'filename', 'chunk_count', 'ingested_at'
+    )
+
+    docs_list = list(docs)
+    for doc in docs_list:
+        doc['ingested_at'] = doc['ingested_at'].strftime('%Y-%m-%d %H:%M')
+
+    return JsonResponse({
+        'total_documents': len(docs_list),
+        'documents': docs_list,
+    })
