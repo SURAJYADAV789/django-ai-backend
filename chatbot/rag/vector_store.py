@@ -120,3 +120,46 @@ def get_stats(collection_name: str = 'documents'):
         'collection': collection_name,
         'total_chunks': collection.count(),
     }
+
+
+def semantic_search(
+        query: str,
+        collection_name: str = 'documents',
+        n_results: int = 5,
+        min_similarity: float = 0.3  # filter out low quality results
+) -> List[dict]:
+    
+    """
+    Enchanced semantic search with similarity filtering
+    Only returns results above min_similarity threshold
+    """
+    collection = get_collection(collection_name)
+
+    if collection.count() == 0:
+        return []
+    
+    results = collection.query(
+        query_texts=[query],
+        n_results=min(n_results, collection.count()),
+    )
+
+    chunks = []
+    for i, doc in enumerate(results['documents'][0]):
+        distance = results['distances'][0][i]
+        similarity = 1 - distance  # convert distance -> similarity
+
+        # filter not low quanlity results
+        if similarity < min_similarity:
+            continue
+
+        chunks.append({
+            "content": doc,
+            "source": results['metadatas'][0][i]['source'],
+            "chunk_index": results['metadatas'][0][i]['chunk_index'],
+            "similarity": round(similarity, 4),  # higher -> more relevant
+            "distance": round(distance, 4),    # lower -> more relevant     
+        })
+
+
+    chunks.sort(key=lambda x:x['similarity'], reverse=True)
+    return chunks

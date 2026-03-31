@@ -8,6 +8,7 @@ from django_ratelimit.decorators import ratelimit
 from django.views.decorators.http import require_POST, require_GET
 from .ai_providers.router import get_provider
 from chatbot.rag.rag_pipeline import ask_with_rag
+from .rag.vector_store import semantic_search
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -205,3 +206,49 @@ def list_documents(request):
         'total_documents': len(docs_list),
         'documents': docs_list,
     })
+
+
+@csrf_exempt
+@require_POST
+@ratelimit(key='ip', rate='20/m', block=True)
+def search_documents(request):
+    """
+    semantic search endpoint
+    searches your ingested documents by meaning, not keywords
+
+    """
+
+    try:
+        data = json.loads(request.body)
+        query = data.get("query", "").strip()
+        n_results = data.get("n_results", 5)
+        min_similarity = data.get('min_similarity', 0.3)
+
+        if not query:
+            return JsonResponse({'error': 'No query provided'}, status= 400)
+        
+        # check documents exists
+        if not IngestedDocument.objects.exists():
+            return JsonResponse({
+                "error": "No documents ingested yet.",
+                "hint": "Run: python manage.py ingest_docs --file <path>"
+            }, status=400)
+        
+        # Run semantic search
+        results = semantic_search(
+            query=query,
+            n_results=n_results,
+            min_similarity=min_similarity
+        )
+
+        return JsonResponse({
+            "query": query,
+            "total_results": len(results),
+            "results": results
+        })
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+        
