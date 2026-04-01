@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ask_ai, get_history, rag_ask, list_documents, search_documents
+from .views import ask_ai, get_history, rag_ask, list_documents, search_documents, smart_chat
 
 urlpatterns = [
     path('chat/',ask_ai),   # regular chatbot   
@@ -7,4 +7,5 @@ urlpatterns = [
     path('rag/', rag_ask),               # RAG chatbot 
     path('rag/documents/', list_documents),  # list ingested docs 
     path('search/', search_documents),      # search documents
+    path('smart-chat/', smart_chat ),      
 ]

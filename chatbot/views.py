@@ -9,6 +9,8 @@ from django.views.decorators.http import require_POST, require_GET
 from .ai_providers.router import get_provider
 from chatbot.rag.rag_pipeline import ask_with_rag
 from .rag.vector_store import semantic_search
+from .rag.memory_store import save_message_to_memory, get_relevant_memory
+import uuid
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -251,4 +253,126 @@ def search_documents(request):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+    
+
+
+@csrf_exempt
+@require_POST
+@ratelimit(key='ip', rate='10/m', block=True)
+def smart_chat(request):
+    """
+    chat endpoint with embedding base-memory
+    finds relevant past message instead of recent one
+    """
+    try:
+        data = json.loads(request.body)
+        question = data.get("question", "").strip()
+        session_id = data.get("session_id", "").strip()
+
+        if not question:
+            return JsonResponse({"error": "No question provided"}, status=400)
+        
+        if not session_id:
+            return JsonResponse({"error": "No session_id provided"}, status=400)
+        
+
+        # step1 - find relevant past message using embeddings
+        relevant_memories = get_relevant_memory(
+            session_id=session_id,
+            current_question=question,
+            n_results= 3,  # top 3  most relevant questions
+            min_similarity=0.1,  # more lenient
+        )
+
+        # Filter out current question from memory
+        relevant_memories = [
+            m for m in relevant_memories
+            if m['question'].strip().lower() != question.strip().lower()
+        ]
+
+        print(f"Found {len(relevant_memories)} relevant memories")
+        for mem in relevant_memories:
+            print(f"similarity {mem['similarity']} | Q : {mem['question'][:40]}")
+
+        #step 4 - Build message with relevant memory with context
+        messages = []
+
+        # Add relevant past message to context
+        if relevant_memories:
+            memory_context = "\n".join([
+                f"Past Q: {m['question']}\nPast A: {m['answer']}"
+                for m in relevant_memories
+            ])
+            messages.append({
+                "role": "system",
+                "content": f""" You are a helpful assistant with memory.
+                
+                RELEVANT PAST CONVERSATION: 
+                {memory_context}
+                
+                Use this content if relevant to answer the current question.
+                if not relevant ignore it and answer relevant"""
+            })
+
+        else:
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful assistant"
+            })
+
+
+        # Add current question
+        messages.append({
+            "role": "user",
+            "content": question
+        })
+
+
+        # step3 - get provider
+        provider = get_provider()
+        result = provider.complete_with_messages(messages)
+
+        # step4 - save to embedding memory for future retrieval
+        message_id = str(uuid.uuid4())
+        save_message_to_memory(
+            session_id=session_id,
+            message_id=message_id,
+            question=question,
+            answer=result.answer,
+        )  
+
+        # step5 - Also save to db for  history endpoint
+        conversation, _ = Conversation.objects.get_or_create(
+            session_id=f"smart_{session_id}"
+        )
+
+        ChatMessage.objects.create(
+            conversation = conversation,
+            question = question,
+            answer = result.answer,
+            ip_address = request.META.get("REMOTE_ADDR"),
+            provider = result.provider,
+            model = result.model,
+            input_tokens = result.input_tokens,
+            output_tokens = result.output_tokens,
+        )
+
+        return JsonResponse({
+            "question": question,
+            "answer": result.answer,
+            "session_id": session_id,
+            "memories_used": len(relevant_memories),
+            "relevant_memories": [
+                {"question": m["question"], "similarity": m['similarity']}
+                for m in relevant_memories
+            ]
+        })
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid Json"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+
+
         
